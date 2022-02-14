@@ -1,10 +1,8 @@
-# elite-c v2 holder
+# elite-c holder
 
-This is a elite-c v2 holder for the lolligagger tray mount for [Joshua Shreves
+This is a elite-c v4 holder for the lolligagger tray mount for [Joshua Shreves
 Dactyl Manuform python port](https://github.com/joshreve/dactyl-keyboard) if you
 enable ```controller_mount_type = 'EXTERNAL'```.
-
-This is a work in progress, the elite-c does not fit yet! 
 
 ## Printing
 

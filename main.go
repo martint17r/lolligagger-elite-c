@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/deadsy/sdfx/render"
@@ -12,9 +13,13 @@ const shrink = 1.0 / 0.999 // PLA ~0.1%
 //const shrink = 1.0/0.995; // ABS ~0.5%
 
 const (
-	// dimensions taken from elite c v2
+	// dimensions taken from elite c v4
 	ecWidth  = 18.65
-	ecLength = 33.0
+	ecLength = 34.5
+
+	trsWidth  = 6.15
+	trsLength = 14.3
+	trsHeight = 5.0
 
 	pinClearance  = 2.8
 	pinOffset     = 0.15
@@ -30,8 +35,10 @@ const (
 	shieldLength = 1.6
 
 	trayHeight       = 5.0
-	trayBottomHeight = 1.5
-	ecTrayTranslateX = 3.70
+	trayBottomHeight = 2.5
+
+	ecTrayTranslateX  = 3.70
+	trsTrayTranslateX = 3.9
 )
 
 func constructECTray() (sdf.SDF3, error) {
@@ -124,6 +131,45 @@ func constructECTray() (sdf.SDF3, error) {
 	return ecTray, nil
 }
 
+func constructTRSTray() (sdf.SDF3, error) {
+	tray, err := sdf.Box3D(sdf.V3{
+		X: trsWidth + 2*wallThickness,
+		Y: trsLength + 2*wallThickness,
+		Z: trayHeight,
+	}, 0)
+
+	if err != nil {
+		return nil, err
+	}
+
+	tray = sdf.Transform3D(tray, sdf.Translate3d(sdf.V3{
+		X: 0,
+		Y: 0,
+		Z: tray.BoundingBox().Size().Z / 2}))
+
+	trrsBB, err := sdf.Box3D(sdf.V3{
+		X: trsWidth,
+		Y: trsLength,
+		Z: trayHeight,
+	}, 0)
+	trrsBB = sdf.Transform3D(trrsBB, sdf.Translate3d(sdf.V3{
+		X: 0,
+		Y: wallThickness,
+		Z: trrsBB.BoundingBox().Size().Z/2 + trayBottomHeight}))
+
+	if err != nil {
+		return nil, err
+	}
+	tray = sdf.Difference3D(tray, trrsBB)
+
+	tray = sdf.Transform3D(tray, sdf.Translate3d(sdf.V3{
+		X: 0,
+		Y: -(trsLength + 3.8 + 2*wallThickness),
+		Z: 0}))
+
+	return tray, nil
+}
+
 func constructSlotAndShield() (sdf.SDF3, error) {
 	slot, err := sdf.Box3D(sdf.V3{
 		X: slotWidth,
@@ -195,6 +241,9 @@ func holder() (sdf.SDF3, error) {
 	//	trrsLength := 13.30
 
 	ecTray, err := constructECTray()
+	if err != nil {
+		return nil, err
+	}
 
 	// move it to the left side
 	ecTray = sdf.Transform3D(ecTray, sdf.Translate3d(sdf.V3{
@@ -202,20 +251,76 @@ func holder() (sdf.SDF3, error) {
 		Y: 0,
 		Z: 0}))
 
+	trsTray, err := constructTRSTray()
+	if err != nil {
+		return nil, err
+	}
+
+	// move it to the left side
+	trsTray = sdf.Transform3D(trsTray, sdf.Translate3d(sdf.V3{
+		X: -(trsWidth + trsTrayTranslateX),
+		Y: trsLength - 2*wallThickness,
+		Z: 0}))
+
+	out := sdf.Union3D(ecTray, trsTray)
+
 	slot, err := constructSlotAndShield()
 	if err != nil {
 		return nil, err
 	}
-	ecTray = sdf.Union3D(ecTray, slot)
+	out = sdf.Union3D(out, slot)
 
 	usbHole, err := createUSBCutout()
 	if err != nil {
 		return nil, err
 	}
+	out = sdf.Difference3D(out, usbHole)
 
-	ecTray = sdf.Difference3D(ecTray, usbHole)
+	boardHole, err := constructBoardCutout()
+	if err != nil {
+		return nil, err
+	}
+	out = sdf.Difference3D(out, boardHole)
 
-	return ecTray, nil
+	trsHole, err := createTRSCutout()
+	if err != nil {
+		return nil, err
+	}
+	trsHole = sdf.Transform3D(trsHole, sdf.Translate3d(sdf.V3{
+		X: -(trsWidth + trsTrayTranslateX),
+		Y: 0,
+		Z: trayBottomHeight}))
+	out = sdf.Difference3D(out, trsHole)
+
+	return out, nil
+}
+
+func createTRSCutout() (sdf.SDF3, error) {
+	radius := 6.5 * 0.5
+	trsHole, err := sdf.Cylinder3D(12, radius, 0)
+	if err != nil {
+		return nil, err
+	}
+	m := sdf.RotateX(sdf.DtoR(90))
+	m = sdf.Translate3d(sdf.V3{0, 5, radius - (radius-5*.5)*0.5}).Mul(m)
+	out := sdf.Transform3D(trsHole, m)
+
+	trsCutout, err := sdf.Box3D(sdf.V3{
+		X: trsWidth,
+		Y: 3,
+		Z: trsHeight,
+	}, 0)
+	if err != nil {
+		return nil, err
+	}
+	trsCutout = sdf.Transform3D(trsCutout, sdf.Translate3d(sdf.V3{
+		X: 0,
+		Y: -1.5,
+		Z: trsHeight / 2}))
+
+	out = sdf.Union3D(out, trsCutout)
+
+	return out, nil
 }
 
 func createUSBCutout() (sdf.SDF3, error) {
@@ -224,7 +329,7 @@ func createUSBCutout() (sdf.SDF3, error) {
 	usbCutout, err := sdf.Box3D(sdf.V3{
 		X: 11.5,
 		Y: slotLength + shieldLength - slotCutoutThickness,
-		Z: 11 + trayBottomHeight,
+		Z: 13 + trayBottomHeight,
 	}, 2.5)
 
 	if err != nil {
@@ -237,9 +342,9 @@ func createUSBCutout() (sdf.SDF3, error) {
 		Z: 0}))
 
 	usbHole, err := sdf.Box3D(sdf.V3{
-		X: 9.2,
+		X: 9.4,
 		Y: slotLength + shieldLength + 6,
-		Z: 3.3,
+		Z: 3.5,
 	}, 1.8)
 
 	if err != nil {
@@ -255,10 +360,29 @@ func createUSBCutout() (sdf.SDF3, error) {
 	return usbHole, nil
 }
 
+func constructBoardCutout() (sdf.SDF3, error) {
+	boardCutout, err := sdf.Box3D(sdf.V3{
+		X: ecWidth,
+		Y: 1.5,
+		Z: 1.8,
+	}, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	boardCutout = sdf.Transform3D(boardCutout, sdf.Translate3d(sdf.V3{
+		X: ecTrayTranslateX,
+		Y: boardCutout.BoundingBox().Size().Y/2 - 2,
+		Z: trayBottomHeight + boardCutout.BoundingBox().Size().Z/2}))
+
+	return boardCutout, nil
+}
+
 func main() {
 	s, err := holder()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 	render.RenderSTL(sdf.ScaleUniform3D(s, shrink), 300, "holder.stl")
+	fmt.Println("done")
 }
